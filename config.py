@@ -37,10 +37,11 @@ class Config:
     num_cpu_workers: int = 4
 
     # Model
-    model: str = "CrossModalUNet"
+    model: str = "CrossModalUNet"  # options: CrossModalUNet, DualBranchResNet3D
     growth_rate: int = 24
     depth: int = 4
     proj_dim: int = 256
+    resnet_base_channels: int = 32
 
     # Training
     batch_size: int = 8
@@ -55,7 +56,7 @@ class Config:
     log_dir: str = "./runs"
 
     # Optional resume / transfer
-    pretrained_path: Optional[str] = '/root/autodl-tmp/lwq/CLclassify/runs/pretrain_20260408_152941/best.pth'
+    pretrained_path: Optional[str] = None
     finetuning_checkpoint_path: Optional[str] = None
     pretraining_checkpoint_path: Optional[str] = None
 

@@ -21,6 +21,7 @@ from dataset import (
 )
 from losses import ClassificationLoss, DualModalContrastiveLoss
 from models.CrossModalUNet import CrossModalUNet
+from models.DualBranchResNet3D import DualBranchResNet3D
 
 
 def set_seed(seed: int):
@@ -127,15 +128,27 @@ def make_loaders(cfg: Config, stage: str, split_file: str):
 
 
 def build_model(cfg: Config, mode: str):
-    return CrossModalUNet(
-        num_classes=cfg.num_classes,
-        in_channels=cfg.in_channels,
-        depth=cfg.depth,
-        num_modalities=2,
-        mode=mode,
-        growth_rate=cfg.growth_rate,
-        proj_dim=cfg.proj_dim,
-    )
+    model_name = str(cfg.model).lower()
+    if model_name in {"crossmodalunet", "unet_encoder"}:
+        return CrossModalUNet(
+            num_classes=cfg.num_classes,
+            in_channels=cfg.in_channels,
+            depth=cfg.depth,
+            num_modalities=2,
+            mode=mode,
+            growth_rate=cfg.growth_rate,
+            proj_dim=cfg.proj_dim,
+        )
+    if model_name in {"dualbranchresnet3d", "resnet3d", "resnet"}:
+        return DualBranchResNet3D(
+            num_classes=cfg.num_classes,
+            in_channels=cfg.in_channels,
+            mode=mode,
+            base_channels=cfg.resnet_base_channels,
+            proj_dim=cfg.proj_dim,
+        )
+    raise ValueError(f"Unsupported cfg.model={cfg.model}. "
+                     f"Use CrossModalUNet or DualBranchResNet3D.")
 
 
 def save_config(run_dir: str, cfg: Config, extra: dict = None):

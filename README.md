@@ -94,7 +94,24 @@
 
 ---
 
-## 6. 训练命令
+## 6. 可选模型
+
+在 `config.py` 中通过 `model` 选择：
+
+- `CrossModalUNet`（默认）
+- `DualBranchResNet3D`（新增，可用于对比实验）
+
+常用设置示例：
+
+```python
+# config.py
+model = "DualBranchResNet3D"
+resnet_base_channels = 32
+```
+
+---
+
+## 7. 训练命令
 
 ### 6.1 仅预训练
 
@@ -134,7 +151,7 @@ python main.py \
 
 ---
 
-## 7. 断点续训
+## 8. 断点续训
 
 ### 7.1 继续预训练
 
@@ -158,7 +175,7 @@ python main.py \
 
 ---
 
-## 8. 输出文件
+## 9. 输出文件
 
 每个运行目录典型输出：
 
@@ -168,11 +185,11 @@ python main.py \
 - `pretrain_log.csv` 或 `train_val_log.csv`
 - `experiment_config.json`
 - `final_results.json`（分类结束）
-- `confusion_matrix_test.csv`（分类结束）
+- `confusion_matrix_val.csv`（分类结束）
 
 ---
 
-## 9. 常见问题
+## 10. 常见问题
 
 1. 预训练验证 loss 波动大
 - 尝试增大 `batch_size`
