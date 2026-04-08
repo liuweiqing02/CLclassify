@@ -201,3 +201,20 @@ python main.py \
 
 3. 速度慢
 - 首轮慢通常是缓存构建导致，后续会更快
+
+4. 想检查增强是否异常
+- 可导出“同病人 raw + 多个增强版本”做可视化对比：
+
+```bash
+python export_augmented_samples.py \
+  --output_dir ./runs/aug_debug \
+  --split_file ./runs/split_seed42.json \
+  --num_patients 5 \
+  --num_augs_per_patient 3 \
+  --seed 42
+```
+
+- 输出内容：
+  - `patient_xxx/raw/*.nii.gz`（无增强）
+  - `patient_xxx/aug_00/*.nii.gz` 等（增强后）
+  - `metadata.json`（统计信息）
