@@ -9,8 +9,8 @@ FINE_TUNING = 1
 class Config:
     mode: int
 
-    # Dataset: dongmai only
-    data: str = "dongmai"
+    # Dataset paths
+    data: str = "dataset"
     image_dir_CT_tr: str = "../data_125/Dataset004_dongmaiCT/imagesTr"
     label_dir_CT_tr: str = "../data_125/Dataset004_dongmaiCT/labelsTr"
     image_dir_MRI_tr: str = "../data_125/Dataset005_dongmaiMR/imagesTr"
@@ -19,7 +19,7 @@ class Config:
 
     # Task
     num_classes: int = 3
-    in_channels: int = 2  # image + mask for each branch
+    in_channels: int = 2
 
     # Preprocess
     desired_spacing: Tuple[float, float, float] = (1.5, 1.5, 1.5)
@@ -30,6 +30,7 @@ class Config:
     seed: int = 42
     val_ratio: float = 0.2
     test_ratio: float = 0.0
+    split_file: Optional[str] = None
 
     # Runtime
     cuda: bool = True
@@ -37,41 +38,55 @@ class Config:
     num_cpu_workers: int = 4
 
     # Model
-    model: str = "CrossModalUNet"  # options: CrossModalUNet, DualBranchResNet3D
+    model: str = "DualBranchResNet3D"  # CrossModalUNet | DualBranchResNet3D
     growth_rate: int = 24
     depth: int = 4
     proj_dim: int = 256
     resnet_base_channels: int = 32
 
-    # Training
+    # Shared training defaults
     batch_size: int = 8
-    batch_size_val: int = 2
-    nb_epochs: int = 100
-    lr: float = 3e-4
+    batch_size_val: int = 4
     weight_decay: float = 1e-4
+
+    # Stage-specific recommended hyperparameters
+    pretrain_epochs: int = 80
+    pretrain_lr: float = 1e-4
+    pretrain_temperature: float = 0.07
+
+    finetune_epochs: int = 120
+    finetune_lr: float = 1e-4
+
+    # Effective fields used by runner (auto-filled by mode)
+    nb_epochs: int = 80
+    lr: float = 1e-4
 
     # Paths
     checkpoint_dir: str = "./runs"
-    checkpoint_name: str = "dongmai_cls"
+    checkpoint_name: str = "run"
     log_dir: str = "./runs"
 
-    # Optional resume / transfer
+    # Resume / transfer
     pretrained_path: Optional[str] = None
     finetuning_checkpoint_path: Optional[str] = None
     pretraining_checkpoint_path: Optional[str] = None
 
     def __post_init__(self):
         assert self.mode in {PRETRAINING, FINE_TUNING}, f"Unknown mode: {self.mode}"
+
         if self.mode == PRETRAINING:
             self.mod = "pretraining"
-            self.nb_epochs = 100
-            self.lr = 3e-4
-            self.checkpoint_name = "dongmai_pretrain"
+            self.nb_epochs = self.pretrain_epochs
+            self.lr = self.pretrain_lr
+            self.checkpoint_name = "pretrain"
         else:
             self.mod = "finetuning"
-            self.nb_epochs = 150
-            self.lr = 1e-4
-            self.checkpoint_name = "dongmai_classify"
+            self.nb_epochs = self.finetune_epochs
+            self.lr = self.finetune_lr
+            self.checkpoint_name = "classify"
+
+        if self.split_file is None:
+            self.split_file = f"{self.checkpoint_dir}/split_seed{self.seed}.json"
 
     def to_dict(self):
         return asdict(self)

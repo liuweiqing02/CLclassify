@@ -147,8 +147,7 @@ def build_model(cfg: Config, mode: str):
             base_channels=cfg.resnet_base_channels,
             proj_dim=cfg.proj_dim,
         )
-    raise ValueError(f"Unsupported cfg.model={cfg.model}. "
-                     f"Use CrossModalUNet or DualBranchResNet3D.")
+    raise ValueError(f"Unsupported cfg.model={cfg.model}. Use CrossModalUNet or DualBranchResNet3D.")
 
 
 def save_config(run_dir: str, cfg: Config, extra: dict = None):
@@ -159,29 +158,25 @@ def save_config(run_dir: str, cfg: Config, extra: dict = None):
         json.dump(payload, f, indent=2, ensure_ascii=False)
 
 
-def run_pretraining(args, split_file: str):
+def run_pretraining() -> str:
     cfg = Config(PRETRAINING)
-    cfg.seed = args.seed
-    cfg.lr = args.lr
-    cfg.checkpoint_dir = args.output_dir
-    cfg.log_dir = args.output_dir
-    if args.pretrain_resume:
-        cfg.pretraining_checkpoint_path = args.pretrain_resume
+    split_file = cfg.split_file
 
-    if args.pretrain_resume:
-        run_dir = os.path.dirname(os.path.abspath(args.pretrain_resume))
+    if cfg.pretraining_checkpoint_path:
+        run_dir = os.path.dirname(os.path.abspath(cfg.pretraining_checkpoint_path))
     else:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         run_dir = os.path.join(cfg.checkpoint_dir, f"pretrain_{timestamp}")
     os.makedirs(run_dir, exist_ok=True)
 
-    logger = init_logger(os.path.join(run_dir, "train.log"), append=bool(args.pretrain_resume))
+    logger = init_logger(os.path.join(run_dir, "train.log"), append=bool(cfg.pretraining_checkpoint_path))
     set_seed(cfg.seed)
 
     train_loader, val_loader, label_decode, sizes, _, _ = make_loaders(cfg, stage="pretraining", split_file=split_file)
     logger.info(f"Data split (patient-level): train={sizes[0]} val={sizes[1]}")
     logger.info(f"Using fixed split file: {split_file}")
     logger.info(f"Label decode map (model_label -> original_label): {label_decode}")
+    logger.info(f"Model: {cfg.model}, pretrain_lr={cfg.lr}, pretrain_temp={cfg.pretrain_temperature}, epochs={cfg.nb_epochs}")
 
     save_config(
         run_dir,
@@ -190,32 +185,28 @@ def run_pretraining(args, split_file: str):
     )
 
     model = build_model(cfg, mode="pretrain")
-    loss = DualModalContrastiveLoss(temperature=args.temperature)
+    loss = DualModalContrastiveLoss(temperature=cfg.pretrain_temperature)
 
     runner = CompatibleModel(model, loss, train_loader, val_loader, None, cfg, run_dir)
     runner.pretraining()
     return os.path.join(run_dir, "best.pth")
 
 
-def run_finetuning(args, split_file: str, pretrained_path=None):
+def run_finetuning(pretrained_path=None):
     cfg = Config(FINE_TUNING)
-    cfg.seed = args.seed
-    cfg.lr = args.lr
-    cfg.checkpoint_dir = args.output_dir
-    cfg.log_dir = args.output_dir
+    split_file = cfg.split_file
 
-    cfg.pretrained_path = pretrained_path or args.pretrained
-    if args.finetune_resume:
-        cfg.finetuning_checkpoint_path = args.finetune_resume
+    if pretrained_path is not None:
+        cfg.pretrained_path = pretrained_path
 
-    if args.finetune_resume:
-        run_dir = os.path.dirname(os.path.abspath(args.finetune_resume))
+    if cfg.finetuning_checkpoint_path:
+        run_dir = os.path.dirname(os.path.abspath(cfg.finetuning_checkpoint_path))
     else:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         run_dir = os.path.join(cfg.checkpoint_dir, f"classify_{timestamp}")
     os.makedirs(run_dir, exist_ok=True)
 
-    logger = init_logger(os.path.join(run_dir, "train.log"), append=bool(args.finetune_resume))
+    logger = init_logger(os.path.join(run_dir, "train.log"), append=bool(cfg.finetuning_checkpoint_path))
     set_seed(cfg.seed)
 
     train_loader, val_loader, label_decode, sizes, class_weight, class_counts = make_loaders(
@@ -228,6 +219,7 @@ def run_finetuning(args, split_file: str, pretrained_path=None):
     logger.info(f"Label decode map (model_label -> original_label): {label_decode}")
     logger.info(f"Train class counts (encoded labels): {class_counts}")
     logger.info(f"Class weights for CE: {class_weight.tolist() if class_weight is not None else None}")
+    logger.info(f"Model: {cfg.model}, finetune_lr={cfg.lr}, epochs={cfg.nb_epochs}")
 
     save_config(
         run_dir,
@@ -250,33 +242,17 @@ def run_finetuning(args, split_file: str, pretrained_path=None):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Dongmai dual-branch contrastive pretraining + 3-class classification")
-    parser.add_argument("--mode", type=str, choices=["pretraining", "finetuning", "all"], required=True)
-    parser.add_argument("--output_dir", type=str, default="./runs")
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--split_file", type=str, default=None, help="Fixed split json path for pretrain/finetune consistency")
-
-    parser.add_argument("--lr", type=float, default=3e-4)
-
-    parser.add_argument("--temperature", type=float, default=0.1)
-
-    parser.add_argument("--pretrained", type=str, default=None, help="Path to pretraining best.pth for finetuning")
-    parser.add_argument("--pretrain_resume", type=str, default=None, help="Resume pretraining checkpoint path")
-    parser.add_argument("--finetune_resume", type=str, default=None, help="Resume finetuning checkpoint path")
-
+    parser = argparse.ArgumentParser(description="3D dual-branch contrastive pretraining and classification")
+    parser.add_argument("--mode", type=str, choices=["pretraining", "finetuning", "all"], default="all")
     args = parser.parse_args()
 
-    os.makedirs(args.output_dir, exist_ok=True)
-
-    split_file = args.split_file or os.path.join(args.output_dir, f"split_seed{args.seed}.json")
-
     if args.mode == "pretraining":
-        run_pretraining(args, split_file=split_file)
+        run_pretraining()
     elif args.mode == "finetuning":
-        run_finetuning(args, split_file=split_file)
+        run_finetuning()
     else:
-        best_pretrain = run_pretraining(args, split_file=split_file)
-        run_finetuning(args, split_file=split_file, pretrained_path=best_pretrain)
+        best_pretrain = run_pretraining()
+        run_finetuning(pretrained_path=best_pretrain)
 
 
 if __name__ == "__main__":

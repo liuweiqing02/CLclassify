@@ -117,12 +117,7 @@ resnet_base_channels = 32
 
 ```bash
 python main.py \
-  --mode pretraining \
-  --output_dir ./runs \
-  --split_file ./runs/split_seed42.json \
-  --lr 3e-4 \
-  --temperature 0.1 \
-  --seed 42
+  --mode pretraining
 ```
 
 ### 6.2 仅分类训练（加载预训练 best）
@@ -130,23 +125,14 @@ python main.py \
 ```bash
 python main.py \
   --mode finetuning \
-  --pretrained ./runs/pretrain_YYYYMMDD_HHMMSS/best.pth \
-  --output_dir ./runs \
-  --split_file ./runs/split_seed42.json \
-  --lr 1e-4 \
-  --seed 42
+  # 具体预训练权重路径在 config.py 的 pretrained_path 配置
 ```
 
 ### 6.3 一键两阶段
 
 ```bash
 python main.py \
-  --mode all \
-  --output_dir ./runs \
-  --split_file ./runs/split_seed42.json \
-  --lr 3e-4 \
-  --temperature 0.1 \
-  --seed 42
+  --mode all
 ```
 
 ---
@@ -157,20 +143,16 @@ python main.py \
 
 ```bash
 python main.py \
-  --mode pretraining \
-  --output_dir ./runs \
-  --pretrain_resume ./runs/pretrain_YYYYMMDD_HHMMSS/last.pth \
-  --split_file ./runs/split_seed42.json
+  --mode pretraining
+# 续训路径在 config.py 的 pretraining_checkpoint_path 配置
 ```
 
 ### 7.2 继续分类训练
 
 ```bash
 python main.py \
-  --mode finetuning \
-  --output_dir ./runs \
-  --finetune_resume ./runs/classify_YYYYMMDD_HHMMSS/last.pth \
-  --split_file ./runs/split_seed42.json
+  --mode finetuning
+# 续训路径在 config.py 的 finetuning_checkpoint_path 配置
 ```
 
 ---

@@ -341,7 +341,7 @@ class DongmaiPairDataset(Dataset):
         rot_k = random.randint(0, 3)
 
         do_crop = random.random() < 0.5
-        crop_ratio = random.uniform(0.8, 1.0)
+        crop_ratio = random.uniform(0.9, 1.0)
         crop_window = None
         if do_crop:
             _, d, h, w = ct.shape
