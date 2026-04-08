@@ -79,6 +79,19 @@ class CompatibleModel:
         }
 
     @staticmethod
+    def _safe_torch_load(path: str, map_location="cpu"):
+        """
+        PyTorch 2.6+ defaults to weights_only=True in torch.load, which can fail for
+        checkpoints that include non-tensor Python objects (e.g. numpy structures).
+        We explicitly load with weights_only=False for trusted local checkpoints.
+        """
+        try:
+            return torch.load(path, map_location=map_location, weights_only=False)
+        except TypeError:
+            # Backward compatibility for older torch versions without weights_only arg
+            return torch.load(path, map_location=map_location)
+
+    @staticmethod
     def _save_csv_row(path: str, header: List[str], row: List[object]):
         exists = os.path.exists(path)
         with open(path, "a", newline="", encoding="utf-8") as f:
@@ -101,7 +114,7 @@ class CompatibleModel:
         torch.save(ckpt, path)
 
     def _load_checkpoint(self, path: str, optimizer=None, scheduler=None) -> int:
-        ckpt = torch.load(path, map_location="cpu")
+        ckpt = self._safe_torch_load(path, map_location="cpu")
         self.model.load_state_dict(ckpt["model"], strict=False)
         if optimizer is not None and "optimizer" in ckpt:
             optimizer.load_state_dict(ckpt["optimizer"])
@@ -214,7 +227,7 @@ class CompatibleModel:
 
         # Load pretrained backbone/encoder params if provided
         if self.config.pretrained_path:
-            ckpt = torch.load(self.config.pretrained_path, map_location="cpu")
+            ckpt = self._safe_torch_load(self.config.pretrained_path, map_location="cpu")
             state = ckpt.get("model", ckpt)
             self.model.load_state_dict(state, strict=False)
             self.logger.info(f"Loaded pretrained weights from {self.config.pretrained_path}")
