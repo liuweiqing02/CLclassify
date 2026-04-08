@@ -1,143 +1,100 @@
-# CLclassify (Dongmai Only, Contrastive Pretrain + 3-Class Classification)
+﻿# CLclassify
 
-本项目已从原始多模态分割框架重构为：
+一个独立的双模态 3D 医学图像分类项目，采用两阶段训练：
 
-- 仅使用 `dongmai` 数据集
-- 纯三分类任务（不是分割+分类多任务）
-- 两阶段训练流程：
-  - 阶段A：跨模态对比学习预训练
-  - 阶段B：三分类监督训练
+1. 跨模态对比学习预训练
+2. 三分类监督训练
 
-分割标签（mask）仅作为输入辅助通道，不作为监督输出目标。
+项目输入为双分支结构：
 
----
+- CT 分支：`[CT, Mask_CT]`
+- MRI 分支：`[MRI, Mask_MRI]`
 
-## 1. 项目目标与当前实现
-
-### 1.1 已删除内容
-
-- BraTS19 训练主流程
-- 分割解码头 / 分割输出 / Dice-IoU-HD95 验证链路
-- 原论文创新模块相关实现（E_DAA / TSTCL）在训练主流程中的依赖
-
-### 1.2 保留内容
-
-- 双分支跨模态建模思路（CT分支 + MRI分支）
-- 正负样本构造的对比学习预训练能力
-
-### 1.3 当前输入组织（关键）
-
-- CT分支：`[CT, Mask_CT]`（2通道）
-- MRI分支：`[MRI, Mask_MRI]`（2通道）
+分割标签仅作为辅助输入通道，不作为分割监督目标。
 
 ---
 
-## 2. 数据与ID匹配规则
+## 1. 功能概览
 
-### 2.1 目录约定（`config.py`）
-
-- `../data_125/Dataset004_dongmaiCT/imagesTr`
-- `../data_125/Dataset004_dongmaiCT/labelsTr`
-- `../data_125/Dataset005_dongmaiMR/imagesTr`
-- `../data_125/Dataset005_dongmaiMR/labelsTr`
-- `../data_125/class_L_3n.xlsx`
-
-### 2.2 病人ID匹配
-
-在 `dataset.py` 中使用 `canonical_patient_id` 统一清洗文件名/Excel ID，然后取交集：
-
-`CT图像 ∩ CT mask ∩ MRI图像 ∩ MRI mask ∩ 分类标签`
-
-只有交集病人会进入训练。
-
-### 2.3 划分策略
-
-- 病人级划分（防止泄漏）
-- 按类别分层划分 train/val/test
-- 默认比例：`train:val:test = 0.7:0.2:0.1`（由 `val_ratio` 和 `test_ratio` 决定）
-
-首次运行会生成固定划分文件（默认）：
-
-- `./runs/split_seed42.json`
-
-后续预训练/分类会复用同一 split 文件，保证一致。
+- 双分支 3D 编码器 + 融合分类头
+- 两阶段训练（pretraining / finetuning）
+- 病人级划分，支持固定 split 复用
+- 类别不均衡处理（`class_weight + WeightedRandomSampler`）
+- 预处理缓存（增强前缓存，增强现做）
+- 支持断点续训
 
 ---
 
-## 3. 增强与缓存机制
+## 2. 数据格式要求
 
-### 3.1 预训练阶段增强（开启）
+你需要准备以下 5 组数据：
 
-`DongmaiPairDataset(training=True)` 时：
+1. CT 图像目录
+2. CT 标签目录（mask）
+3. MRI 图像目录
+4. MRI 标签目录（mask）
+5. 病人级分类标签表（Excel）
+
+项目会按病人 ID 自动匹配：
+
+`CT图像 ∩ CT标签 ∩ MRI图像 ∩ MRI标签 ∩ 分类标签`
+
+只有交集病人会被用于训练。
+
+> 路径在 `config.py` 中配置。
+
+---
+
+## 3. 训练流程
+
+### 3.1 预训练阶段（Contrastive Pretraining）
+
+- 正样本：同一病人的 CT/MRI 特征对
+- 负样本：不同病人的跨模态特征对
+- 损失：`DualModalContrastiveLoss`
+
+### 3.2 分类阶段（3-Class Finetuning）
+
+- 加载预训练权重
+- 融合后输出三分类 logits
+- 损失：`CrossEntropyLoss`（支持 class weight）
+
+---
+
+## 4. 增强与缓存
+
+### 4.1 预训练阶段增强（开启）
 
 - 几何增强：翻转、90度旋转、随机裁切后回缩放
-- 几何增强在 CT/MRI 两分支严格同步，且 image/mask 同步
-- 强度增强（scale+bias）仅作用图像通道（channel 0）
-- mask 通道不参与像素强度扰动
+- 几何增强在 CT/MRI 两分支严格同步
+- 图像与 mask 同步几何变换
+- 像素强度扰动仅作用图像通道（mask 不参与）
 
-### 3.2 分类阶段增强（关闭）
+### 4.2 分类阶段增强（关闭）
 
-分类训练时数据集以 `training=False` 构建：
+分类训练时关闭随机增强，仅保留固定预处理。
 
-- 不做随机几何增强
-- 不做随机像素增强
-- 仅做固定预处理
+### 4.3 预处理缓存
 
-### 3.3 预处理缓存
-
-已启用内存缓存（`dataset.py`）：
-
-- 缓存内容：增强前的预处理结果（每个病人一份）
-- 每次取样会先 `copy` 再做增强，避免污染缓存
-- 预期现象：首轮相对慢，后续 epoch 明显加速
+- 缓存内容：增强前的预处理结果
+- 每次取样先 `copy` 再增强，保证增强仍为在线随机
+- 典型现象：首个 epoch 较慢，后续 epoch 更快
 
 ---
 
-## 4. 模型与损失
+## 5. 配置优先级
 
-### 4.1 模型
-
-文件：`models/CrossModalUNet.py`
-
-- 双分支 3D 编码器（CT、MRI）
-- `mode='pretrain'`：输出两分支投影向量（默认 256 维）
-- `mode='classify'`：融合后输出三分类 logits
-
-### 4.2 预训练损失
-
-文件：`losses.py`
-
-- `DualModalContrastiveLoss`（InfoNCE 对称形式）
-- 正样本：同病人 CT-MRI
-- 负样本：批内不同病人跨模态对
-
-### 4.3 分类损失与不均衡处理
-
-- 分类损失：`CrossEntropyLoss`
-- 已启用类别不均衡策略：
-  - `class_weight`（按训练集类别频次反比）
-  - `WeightedRandomSampler`
-
----
-
-## 5. 配置优先级（重要）
-
-当前版本中这些参数**只从 `config.py` 读取**：
+当前版本中以下参数只从 `config.py` 读取：
 
 - `batch_size`
 - `batch_size_val`
 - `nb_epochs`
 
-命令行不再提供以上参数，避免“命令行覆盖 config”造成混淆。
+命令行不会覆盖这三项。
 
 ---
 
 ## 6. 训练命令
-
-下面命令默认使用：
-
-- 固定 split：`./runs/split_seed42.json`
-- `config.py` 中的 batch size / epochs
 
 ### 6.1 仅预训练
 
@@ -151,7 +108,7 @@ python main.py \
   --seed 42
 ```
 
-### 6.2 仅分类训练（加载预训练）
+### 6.2 仅分类训练（加载预训练 best）
 
 ```bash
 python main.py \
@@ -189,11 +146,6 @@ python main.py \
   --split_file ./runs/split_seed42.json
 ```
 
-说明：
-
-- 会在该 checkpoint 所在目录继续写日志和权重
-- 不会新建时间戳目录
-
 ### 7.2 继续分类训练
 
 ```bash
@@ -206,30 +158,29 @@ python main.py \
 
 ---
 
-## 8. 训练输出
+## 8. 输出文件
 
-每个 run 目录下典型文件：
+每个运行目录典型输出：
 
-- `train.log`：控制台+文件日志
-- `last.pth`：最新checkpoint
-- `best.pth`：最佳checkpoint
-- `pretrain_log.csv`（预训练）或 `train_val_log.csv`（分类）
-- `experiment_config.json`：完整实验配置快照
-- `final_results.json`（分类结束后）
-- `confusion_matrix_test.csv`（分类结束后）
+- `train.log`
+- `last.pth`
+- `best.pth`
+- `pretrain_log.csv` 或 `train_val_log.csv`
+- `experiment_config.json`
+- `final_results.json`（分类结束）
+- `confusion_matrix_test.csv`（分类结束）
 
 ---
 
-## 9. 快速排错建议
+## 9. 常见问题
 
-1. 预训练 val loss 不稳定：
-- 优先增大 `config.py` 的 `batch_size`
-- 保证单卡或每卡 batch 不太小（BatchNorm 稳定性）
+1. 预训练验证 loss 波动大
+- 尝试增大 `batch_size`
+- 尽量避免每卡 batch 过小
 
-2. 显存不足：
-- 降 `batch_size`
-- 降 `depth` 或 `growth_rate`
+2. 显存不足
+- 降低 `batch_size`
+- 降低 `depth` 或 `growth_rate`
 
-3. 训练慢：
-- 首轮慢是缓存构建现象，后续 epoch 会更快
-
+3. 速度慢
+- 首轮慢通常是缓存构建导致，后续会更快
