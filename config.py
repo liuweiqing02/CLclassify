@@ -29,7 +29,7 @@ class Config:
     # Split
     seed: int = 42
     val_ratio: float = 0.2
-    test_ratio: float = 0.1
+    test_ratio: float = 0.0
 
     # Runtime
     cuda: bool = True
@@ -55,7 +55,7 @@ class Config:
     log_dir: str = "./runs"
 
     # Optional resume / transfer
-    pretrained_path: Optional[str] = None
+    pretrained_path: Optional[str] = '/root/autodl-tmp/lwq/CLclassify/runs/pretrain_20260408_152941/best.pth'
     finetuning_checkpoint_path: Optional[str] = None
     pretraining_checkpoint_path: Optional[str] = None
 

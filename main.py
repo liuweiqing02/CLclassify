@@ -49,16 +49,15 @@ def init_logger(log_file: str, append: bool = False):
 def _get_or_create_split(records, cfg: Config, split_file: str):
     if os.path.exists(split_file):
         split_data = load_split_file(split_file)
-        train_records, val_records, test_records = split_records_by_ids(records, split_data)
+        train_records, val_records = split_records_by_ids(records, split_data)
     else:
-        train_records, val_records, test_records = split_records_patient_level(
+        train_records, val_records = split_records_patient_level(
             records,
             val_ratio=cfg.val_ratio,
-            test_ratio=cfg.test_ratio,
             seed=cfg.seed,
         )
-        save_split_file(split_file, train_records, val_records, test_records)
-    return train_records, val_records, test_records
+        save_split_file(split_file, train_records, val_records, [])
+    return train_records, val_records
 
 
 def _compute_class_weight_and_sampler(train_set: DongmaiPairDataset, num_classes: int):
@@ -80,11 +79,10 @@ def _compute_class_weight_and_sampler(train_set: DongmaiPairDataset, num_classes
 
 def make_loaders(cfg: Config, stage: str, split_file: str):
     records, label_decode = build_dongmai_records(cfg)
-    train_records, val_records, test_records = _get_or_create_split(records, cfg, split_file)
+    train_records, val_records = _get_or_create_split(records, cfg, split_file)
 
     train_set = DongmaiPairDataset(train_records, cfg, training=(stage == "pretraining"))
     val_set = DongmaiPairDataset(val_records, cfg, training=False)
-    test_set = DongmaiPairDataset(test_records, cfg, training=False)
 
     class_weight = None
     class_counts = None
@@ -118,21 +116,11 @@ def make_loaders(cfg: Config, stage: str, split_file: str):
         pin_memory=cfg.pin_mem,
         collate_fn=DongmaiPairDataset.collate_fn,
     )
-    test_loader = DataLoader(
-        test_set,
-        batch_size=cfg.batch_size_val,
-        shuffle=False,
-        num_workers=cfg.num_cpu_workers,
-        pin_memory=cfg.pin_mem,
-        collate_fn=DongmaiPairDataset.collate_fn,
-    )
-
     return (
         train_loader,
         val_loader,
-        test_loader,
         label_decode,
-        (len(train_set), len(val_set), len(test_set)),
+        (len(train_set), len(val_set)),
         class_weight,
         class_counts,
     )
@@ -177,8 +165,8 @@ def run_pretraining(args, split_file: str):
     logger = init_logger(os.path.join(run_dir, "train.log"), append=bool(args.pretrain_resume))
     set_seed(cfg.seed)
 
-    train_loader, val_loader, test_loader, label_decode, sizes, _, _ = make_loaders(cfg, stage="pretraining", split_file=split_file)
-    logger.info(f"Data split (patient-level): train={sizes[0]} val={sizes[1]} test={sizes[2]}")
+    train_loader, val_loader, label_decode, sizes, _, _ = make_loaders(cfg, stage="pretraining", split_file=split_file)
+    logger.info(f"Data split (patient-level): train={sizes[0]} val={sizes[1]}")
     logger.info(f"Using fixed split file: {split_file}")
     logger.info(f"Label decode map (model_label -> original_label): {label_decode}")
 
@@ -191,7 +179,7 @@ def run_pretraining(args, split_file: str):
     model = build_model(cfg, mode="pretrain")
     loss = DualModalContrastiveLoss(temperature=args.temperature)
 
-    runner = CompatibleModel(model, loss, train_loader, val_loader, test_loader, cfg, run_dir)
+    runner = CompatibleModel(model, loss, train_loader, val_loader, None, cfg, run_dir)
     runner.pretraining()
     return os.path.join(run_dir, "best.pth")
 
@@ -217,12 +205,12 @@ def run_finetuning(args, split_file: str, pretrained_path=None):
     logger = init_logger(os.path.join(run_dir, "train.log"), append=bool(args.finetune_resume))
     set_seed(cfg.seed)
 
-    train_loader, val_loader, test_loader, label_decode, sizes, class_weight, class_counts = make_loaders(
+    train_loader, val_loader, label_decode, sizes, class_weight, class_counts = make_loaders(
         cfg,
         stage="classification",
         split_file=split_file,
     )
-    logger.info(f"Data split (patient-level): train={sizes[0]} val={sizes[1]} test={sizes[2]}")
+    logger.info(f"Data split (patient-level): train={sizes[0]} val={sizes[1]}")
     logger.info(f"Using fixed split file: {split_file}")
     logger.info(f"Label decode map (model_label -> original_label): {label_decode}")
     logger.info(f"Train class counts (encoded labels): {class_counts}")
@@ -244,7 +232,7 @@ def run_finetuning(args, split_file: str, pretrained_path=None):
     model = build_model(cfg, mode="classify")
     loss = ClassificationLoss(class_weight=class_weight)
 
-    runner = CompatibleModel(model, loss, train_loader, val_loader, test_loader, cfg, run_dir)
+    runner = CompatibleModel(model, loss, train_loader, val_loader, None, cfg, run_dir)
     runner.fine_tuning()
 
 

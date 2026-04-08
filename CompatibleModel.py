@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 
 class CompatibleModel:
-    def __init__(self, net, loss, loader_train, loader_val, loader_test, config, run_dir):
+    def __init__(self, net, loss, loader_train, loader_val, loader_test=None, config=None, run_dir=None):
         self.model = net
         self.loss = loss
         self.loader_train = loader_train
@@ -278,28 +278,32 @@ class CompatibleModel:
                 )
                 self.logger.info(f"[Classify] New best val_f1={val_m['f1']:.4f} at epoch={epoch}")
 
-        # Final test evaluation with best model
+        # Final evaluation (use test loader if provided, otherwise val loader)
         best_path = os.path.join(self.run_dir, "best.pth")
         if os.path.exists(best_path):
             self._load_checkpoint(best_path)
 
-        with torch.no_grad():
-            test_loss, test_m = self._epoch_classification(self.loader_test, train=False)
+        eval_loader = self.loader_test if self.loader_test is not None else self.loader_val
+        eval_name = "test" if self.loader_test is not None else "val"
 
-        cm = test_m["confusion_matrix"]
-        cm_path = os.path.join(self.run_dir, "confusion_matrix_test.csv")
+        with torch.no_grad():
+            eval_loss, eval_m = self._epoch_classification(eval_loader, train=False)
+
+        cm = eval_m["confusion_matrix"]
+        cm_path = os.path.join(self.run_dir, f"confusion_matrix_{eval_name}.csv")
         np.savetxt(cm_path, cm, fmt="%d", delimiter=",")
 
         result = {
             "best_epoch": best_epoch,
-            "test_loss": test_loss,
-            "test_accuracy": test_m["accuracy"],
-            "test_precision": test_m["precision"],
-            "test_recall": test_m["recall"],
-            "test_f1": test_m["f1"],
-            "test_precision_per_class": test_m["precision_per_class"],
-            "test_recall_per_class": test_m["recall_per_class"],
-            "test_f1_per_class": test_m["f1_per_class"],
+            "eval_set": eval_name,
+            "eval_loss": eval_loss,
+            "eval_accuracy": eval_m["accuracy"],
+            "eval_precision": eval_m["precision"],
+            "eval_recall": eval_m["recall"],
+            "eval_f1": eval_m["f1"],
+            "eval_precision_per_class": eval_m["precision_per_class"],
+            "eval_recall_per_class": eval_m["recall_per_class"],
+            "eval_f1_per_class": eval_m["f1_per_class"],
             "confusion_matrix_path": cm_path,
         }
 
@@ -307,7 +311,7 @@ class CompatibleModel:
             json.dump(result, f, indent=2, ensure_ascii=False)
 
         self.logger.info(
-            "[Classify][Test] "
-            f"loss={test_loss:.6f} acc={test_m['accuracy']:.4f} "
-            f"precision={test_m['precision']:.4f} recall={test_m['recall']:.4f} f1={test_m['f1']:.4f}"
+            f"[Classify][{eval_name.upper()}] "
+            f"loss={eval_loss:.6f} acc={eval_m['accuracy']:.4f} "
+            f"precision={eval_m['precision']:.4f} recall={eval_m['recall']:.4f} f1={eval_m['f1']:.4f}"
         )

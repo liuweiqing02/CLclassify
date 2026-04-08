@@ -174,47 +174,45 @@ def build_dongmai_records(config) -> Tuple[List[DongmaiRecord], Dict[int, int]]:
 def split_records_patient_level(
     records: List[DongmaiRecord],
     val_ratio: float = 0.2,
-    test_ratio: float = 0.1,
     seed: int = 42,
-) -> Tuple[List[DongmaiRecord], List[DongmaiRecord], List[DongmaiRecord]]:
-    if not 0.0 <= test_ratio < 1.0:
-        raise ValueError("test_ratio must be in [0, 1)")
+) -> Tuple[List[DongmaiRecord], List[DongmaiRecord]]:
     if not 0.0 <= val_ratio < 1.0:
         raise ValueError("val_ratio must be in [0, 1)")
-    if val_ratio + test_ratio >= 1.0:
-        raise ValueError("val_ratio + test_ratio must be < 1")
+    if val_ratio >= 1.0:
+        raise ValueError("val_ratio must be < 1")
 
     rng = random.Random(seed)
     by_label: Dict[int, List[DongmaiRecord]] = {}
     for r in records:
         by_label.setdefault(r.label, []).append(r)
 
-    train, val, test = [], [], []
+    train, val = [], []
     for _, group in by_label.items():
         group = group[:]
         rng.shuffle(group)
 
         n = len(group)
-        n_test = int(round(n * test_ratio))
         n_val = int(round(n * val_ratio))
 
-        if n >= 3 and (n_test + n_val) >= n:
-            if n_test > 0:
-                n_test -= 1
-            elif n_val > 0:
-                n_val -= 1
+        if n >= 2 and n_val >= n:
+            n_val = n - 1
 
-        test.extend(group[:n_test])
-        val.extend(group[n_test:n_test + n_val])
-        train.extend(group[n_test + n_val:])
+        val.extend(group[:n_val])
+        train.extend(group[n_val:])
 
     rng.shuffle(train)
     rng.shuffle(val)
-    rng.shuffle(test)
-    return train, val, test
+    return train, val
 
 
-def save_split_file(path: str, train_records: List[DongmaiRecord], val_records: List[DongmaiRecord], test_records: List[DongmaiRecord]):
+def save_split_file(
+    path: str,
+    train_records: List[DongmaiRecord],
+    val_records: List[DongmaiRecord],
+    test_records: List[DongmaiRecord] = None,
+):
+    if test_records is None:
+        test_records = []
     payload = {
         "train_ids": [r.patient_id for r in train_records],
         "val_ids": [r.patient_id for r in val_records],
@@ -228,25 +226,28 @@ def save_split_file(path: str, train_records: List[DongmaiRecord], val_records: 
 def load_split_file(path: str) -> Dict[str, List[str]]:
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
-    for k in ("train_ids", "val_ids", "test_ids"):
+    for k in ("train_ids", "val_ids"):
         if k not in data:
             raise ValueError(f"Split file missing key: {k}")
+    if "test_ids" not in data:
+        data["test_ids"] = []
     return data
 
 
 def split_records_by_ids(
     records: List[DongmaiRecord],
     split_data: Dict[str, List[str]],
-) -> Tuple[List[DongmaiRecord], List[DongmaiRecord], List[DongmaiRecord]]:
+) -> Tuple[List[DongmaiRecord], List[DongmaiRecord]]:
     rec_map = {r.patient_id: r for r in records}
 
-    train = [rec_map[pid] for pid in split_data["train_ids"] if pid in rec_map]
+    # Backward compatibility: if an old split contains test_ids, merge them into training.
+    train_ids = list(split_data["train_ids"]) + list(split_data.get("test_ids", []))
+    train = [rec_map[pid] for pid in train_ids if pid in rec_map]
     val = [rec_map[pid] for pid in split_data["val_ids"] if pid in rec_map]
-    test = [rec_map[pid] for pid in split_data["test_ids"] if pid in rec_map]
 
-    if not train or not val or not test:
-        raise RuntimeError("Loaded split produced empty train/val/test. Please regenerate split file.")
-    return train, val, test
+    if not train or not val:
+        raise RuntimeError("Loaded split produced empty train/val. Please regenerate split file.")
+    return train, val
 
 
 def _load_nifti(path: str) -> Tuple[np.ndarray, Tuple[float, float, float]]:
